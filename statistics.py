@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import math
 import os
 import sys
@@ -9,7 +7,7 @@ from dotenv import load_dotenv
 from terminaltables import DoubleTable
 
 
-def predict_rub_salary_for_SuperJob(language_computer):
+def predict_rub_salary_for_SuperJob(specialty):
 
     url = "https://api.superjob.ru/2.0/vacancies/catalogues/"
 
@@ -19,27 +17,36 @@ def predict_rub_salary_for_SuperJob(language_computer):
 
     payload = {
         "t": "4",
-        'keyword': f'{language_computer}'
+        'keyword': specialty
     }
 
-    stata_SJ = {}
-    response_SJ = requests.get(url, headers=headers, params=payload)
-    response_SJ.raise_for_status()
-    vacancies_total = response_SJ.json()['total']
-    stata_SJ['vacancies_found'] = vacancies_total
-    pages = math.ceil(vacancies_total / 20)
+    data_vacancie = {}
+    try:
+        response = requests.get(url, headers=headers, params=payload)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        exit(f'[*] Check that the SuperJob SECRET KEY is correct\n {http_err}')
+    except requests.exceptions.ConnectionError as connect_err:
+        exit(f'[*] Check Your network connection\n {connect_err}')
+    except requests.exceptions.RequestException as err:
+        exit(f'[*] Something went wrong\n {err}')
+    vacancies_total = response.json()['total']
+    data_vacancie['vacancies_found'] = vacancies_total
+    vacancies_on_page = 20
+    pages = math.ceil(vacancies_total / vacancies_on_page)
     vacancies_suitable = 0
     page = 0
     while page < pages:
         response = requests.get(url, headers=headers,
-                                params={'page': page, 'keyword': f'{language_computer}', "t": "4"})
+                                params={'page': page, 'keyword': specialty, "t": "4"})
         response.raise_for_status()
         page += 1
         vacancies = response.json()['objects']
         for vacancy in vacancies:
             professions = vacancy['catalogues']
+            id_professions = 33
             for profession in professions:
-                if profession['id'] == 33:
+                if profession['id'] == id_professions:
                     if vacancy['currency'] == 'rub':
                         limit_lower = vacancy['payment_from']
                         limit_upper = vacancy['payment_to']
@@ -48,13 +55,13 @@ def predict_rub_salary_for_SuperJob(language_computer):
                         else:
                             vacancies_suitable += 1
                             predict_salary(limit_lower, limit_upper)
-    stata_SJ['vacancies_processed'] = vacancies_suitable
-    stata_SJ['average_salary'] = int(sum(average_salary) / len(average_salary))
-    statistics_vacansies_SJ[language_computer] = stata_SJ
-    return statistics_vacansies_SJ
+    data_vacancie['vacancies_processed'] = vacancies_suitable
+    data_vacancie['average_salary'] = int(sum(average_salary) / len(average_salary))
+    statistics_vacansies_sj[specialty] = data_vacancie
+    return statistics_vacansies_sj
 
 
-def predict_rub_salary_for_HeadHunter(computer_language):
+def predict_rub_salary_for_HeadHunter(specialty):
     url = "https://api.hh.ru/vacancies"
     vacancies_suitable = 0
     headers = {
@@ -62,7 +69,7 @@ def predict_rub_salary_for_HeadHunter(computer_language):
     }
 
     payload = {
-        "text": f"Программист {computer_language}",
+        "text": f"Программист {specialty}",
         "area": "1",
         "period": "30",
         "only_with_salary": "true",
@@ -70,23 +77,27 @@ def predict_rub_salary_for_HeadHunter(computer_language):
         "salary.to": "true"
     }
 
-    response_HH = requests.get(url, headers=headers, params=payload)
-    response_HH.raise_for_status()
-    vacancies = response_HH.json()['items']
-    found = response_HH.json()['found']
-    pages = response_HH.json()['pages']
-    data = dict(vacancies_found=found)
+    try:
+        response = requests.get(url, headers=headers, params=payload)
+        response.raise_for_status()
+    except requests.exceptions.ConnectionError as connect_err:
+        exit(f'[*] Check Your network connection\n {connect_err}')
+    except requests.exceptions.RequestException as err:
+        exit(f'[*] Something went wrong\n {err}')
+    vacancies = response.json()['items']
+    found = response.json()['found']
+    pages = response.json()['pages']
+    data_vacancies = dict(vacancies_found=found)
     page = 0
     while page < pages:
-        response_HH = requests.get(url, headers=headers, params={'page': page})
-        response_HH.raise_for_status()
+        response = requests.get(url, headers=headers, params={'page': page})
+        response.raise_for_status()
         page += 1
         for vacancy in vacancies:
             if vacancy['salary']['currency'] != 'RUR':
                 pass
             else:
                 salary = vacancy['salary']
-                name_vacancy = vacancy['name']
                 limit_lower = salary['from']
                 limit_upper = salary['to']
                 if limit_lower and limit_upper is None:
@@ -94,18 +105,16 @@ def predict_rub_salary_for_HeadHunter(computer_language):
                 else:
                     vacancies_suitable += 1
                     predict_salary(limit_lower, limit_upper)
-    data['vacancies_processed'] = vacancies_suitable
-    data['average_salary'] = int(sum(average_salary) / len(average_salary))
-    statistics_vacansies_HH[computer_language] = data
-    return statistics_vacansies_HH
+    data_vacancies['vacancies_processed'] = vacancies_suitable
+    data_vacancies['average_salary'] = int(sum(average_salary) / len(average_salary))
+    statistics_vacansies_hh[specialty] = data_vacancies
+    return statistics_vacansies_hh
 
 
 def predict_salary(salary_from, salary_to):
     if salary_from and salary_to is not None:
         average = int((salary_from + salary_to) / 2)
         average_salary.append(average)
-    elif salary_from and salary_to is None:
-        pass
     elif salary_from is None:
         average = int(salary_to * 0.8)
         average_salary.append(average)
@@ -115,44 +124,37 @@ def predict_salary(salary_from, salary_to):
     return average_salary
 
 
-def creating_tables(dictionary, title):
-    TABLE_DATA = [
+def fetch_tables_to_consol(statistics_vacansies, title):
+    table_data_vacancies = [
         ("Язык программирования", "Вакансий найдено", "Вакансий обработано", "Средняя зарплата")
     ]
-    data = dictionary.items()
-    for statistics in data:
-        vacansies = (statistics[0], statistics[1]['vacancies_found'], statistics[1]['vacancies_processed'],
+    data_vacancies = statistics_vacansies.items()
+    for statistics in data_vacancies:
+        row_table = (statistics[0], statistics[1]['vacancies_found'], statistics[1]['vacancies_processed'],
                      statistics[1]['average_salary'])
-        TABLE_DATA.append(vacansies)
+        table_data_vacancies.append(row_table)
 
-    table_instance = DoubleTable(TABLE_DATA, title)
+    table_instance = DoubleTable(table_data_vacancies, title)
     print(table_instance.table)
     print()
-    return tuple(TABLE_DATA)
+    return tuple(table_data_vacancies)
 
 
-def main():
-    pass
+load_dotenv()
+secret_key_superjob = os.getenv("SUPERJOB_SECRET_KEY")
+if secret_key_superjob is None:
+    sys.exit('[*]SuperJob authorization key not found')
 
-
-if __name__ == "__main__":
-    main()
-
-    load_dotenv()
-    secret_key_superjob = os.getenv("KEY")
-    if secret_key_superjob is None:
-        sys.exit('[*]Sorry, something went wrong')
-
-    languages_computer = ['Python', 'C', 'C++', 'C#', 'Shell', 'Javascript', 'Java', 'PHP']
-    statistics_vacansies_SJ = {}
-    for language_computer in languages_computer:
-        average_salary = []
-        predict_rub_salary_for_SuperJob(language_computer)
-    title_SJ = "SuperJob (Moscow)"
-    creating_tables(statistics_vacansies_SJ, title_SJ)
-    statistics_vacansies_HH = {}
-    for language_computer in languages_computer:
-        average_salary = []
-        predict_rub_salary_for_HeadHunter(language_computer)
-    title_HH = "HeadHunter (Moscow)"
-    creating_tables(statistics_vacansies_HH, title_HH)
+programming_languages = ['Python', 'C', 'C++', 'C#', 'Shell', 'Javascript', 'Java', 'PHP']
+statistics_vacansies_sj = {}
+for language in programming_languages:
+    average_salary = []
+    predict_rub_salary_for_SuperJob(language)
+title_sj = "SuperJob (Moscow)"
+fetch_tables_to_consol(statistics_vacansies_sj, title_sj)
+statistics_vacansies_hh = {}
+for language in programming_languages:
+    average_salary = []
+    predict_rub_salary_for_HeadHunter(language)
+title_hh = "HeadHunter (Moscow)"
+fetch_tables_to_consol(statistics_vacansies_hh, title_hh)
