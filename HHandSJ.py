@@ -6,11 +6,13 @@ import requests
 from dotenv import load_dotenv
 from terminaltables import DoubleTable
 
-statistics_vacansies_sj = {}
-statistics_vacansies_hh = {}
+STATISTICS_VACANCIES_SJ = {}
+STATISTICS_VACANCIES_HH = {}
+AVERAGE_SALARY = []
+TABLE_DATA_VACANCIES = []
 
 
-def predict_rub_salary_for_SuperJob(specialty, superjob_token, average_salary=[]):
+def predict_rub_salary_for_SuperJob(specialty, superjob_token):
     url = "https://api.superjob.ru/2.0/vacancies/catalogues/"
 
     headers = {
@@ -48,14 +50,14 @@ def predict_rub_salary_for_SuperJob(specialty, superjob_token, average_salary=[]
                             pass
                         else:
                             vacancies_suitable += 1
-                            predict_salary(limit_lower, limit_upper, average_salary)
+                            predict_salary(limit_lower, limit_upper, AVERAGE_SALARY)
     data_vacancie['vacancies_processed'] = vacancies_suitable
-    data_vacancie['average_salary'] = int(sum(average_salary) / len(average_salary))
-    statistics_vacansies_sj[specialty] = data_vacancie
-    return statistics_vacansies_sj
+    data_vacancie['average_salary'] = int(sum(AVERAGE_SALARY) / len(AVERAGE_SALARY))
+    STATISTICS_VACANCIES_SJ[specialty] = data_vacancie
+    return STATISTICS_VACANCIES_SJ
 
 
-def predict_rub_salary_for_HeadHunter(specialty, average_salary=[]):
+def predict_rub_salary_for_HeadHunter(specialty):
     url = "https://api.hh.ru/vacancies"
     vacancies_suitable = 0
     headers = {
@@ -93,11 +95,11 @@ def predict_rub_salary_for_HeadHunter(specialty, average_salary=[]):
                     pass
                 else:
                     vacancies_suitable += 1
-                    predict_salary(limit_lower, limit_upper, average_salary)
+                    predict_salary(limit_lower, limit_upper, AVERAGE_SALARY)
     data_vacancies['vacancies_processed'] = vacancies_suitable
-    data_vacancies['average_salary'] = int(sum(average_salary) / len(average_salary))
-    statistics_vacansies_hh[specialty] = data_vacancies
-    return statistics_vacansies_hh
+    data_vacancies['average_salary'] = int(sum(AVERAGE_SALARY) / len(AVERAGE_SALARY))
+    STATISTICS_VACANCIES_HH[specialty] = data_vacancies
+    return STATISTICS_VACANCIES_HH
 
 
 def predict_salary(salary_from, salary_to, average_salary):
@@ -113,23 +115,22 @@ def predict_salary(salary_from, salary_to, average_salary):
     return average_salary
 
 
-def generate_tables_to_consol(statistics_vacansies, title):
-    table_data_vacancies = [
-        ("Язык программирования", "Вакансий найдено", "Вакансий обработано", "Средняя зарплата")
-    ]
-    data_vacancies = statistics_vacansies.items()
+def generate_tables(statistics_vacancies):
+    TABLE_DATA_VACANCIES.append(("Язык программирования", "Вакансий найдено", "Вакансий обработано", "Средняя зарплата"))
+
+    data_vacancies = statistics_vacancies.items()
     for statistics in data_vacancies:
         row_table = (statistics[0], statistics[1]['vacancies_found'], statistics[1]['vacancies_processed'],
                      statistics[1]['average_salary'])
-        table_data_vacancies.append(row_table)
+        TABLE_DATA_VACANCIES.append(row_table)
 
-    table_instance = DoubleTable(table_data_vacancies, title)
-    print(table_instance.table)
-    print()
-    return tuple(table_data_vacancies)
+    return TABLE_DATA_VACANCIES
 
 
 def main():
+    load_dotenv()
+    secret_key_superjob = os.getenv("SUPERJOB_SECRET_KEY")
+
     if secret_key_superjob is None:
         sys.exit('[*]SuperJob authorization key not found')
 
@@ -140,20 +141,25 @@ def main():
             for language in programming_languages:
                 predict_rub_salary_for_SuperJob(language, secret_key_superjob)
             title_sj = "SuperJob (Moscow)"
-            generate_tables_to_consol(statistics_vacansies_sj, title_sj)
+            table = generate_tables(STATISTICS_VACANCIES_SJ)
+            table_statistics = DoubleTable(table, title_sj)
+            print(table_statistics.table)
+            print()
         except requests.exceptions.HTTPError as http_err:
             print(f'[*] Check that the SuperJob SECRET KEY is correct\n {http_err}')
         except requests.exceptions.ConnectionError as connect_err:
             exit(f'[*] Check Your network connection\n {connect_err}')
         for language in programming_languages:
             predict_rub_salary_for_HeadHunter(language)
+        TABLE_DATA_VACANCIES.clear()
         title_hh = "HeadHunter (Moscow)"
-        generate_tables_to_consol(statistics_vacansies_hh, title_hh)
+        table = generate_tables(STATISTICS_VACANCIES_HH)
+        table_statistics = DoubleTable(table, title_hh)
+        print(table_statistics.table)
+        print()
     except requests.exceptions.RequestException as err:
         print(f'[*] Something went wrong\n {err}')
 
 
 if __name__ == "__main__":
-    load_dotenv()
-    secret_key_superjob = os.getenv("SUPERJOB_SECRET_KEY")
     main()
